@@ -211,7 +211,7 @@ func serve() {
 		log.Infof("Found %v mbtiles files in %s", len(filenames), tilePath)
 	}
 
-	svcSet, err := handlers.NewFromBaseDir(tilePath, secretKey)
+	svcSet, err := handlers.NewFromBaseDir(tilePath, secretKey, authType)
 	if err != nil {
 		log.Errorf("Unable to create service set: %v", err)
 	}
@@ -241,6 +241,10 @@ func serve() {
 	e.GET("/*", h)
 	a := echo.WrapHandler(svcSet.ArcGISHandler(ef))
 	e.GET("/arcgis/rest/services/*", a)
+
+	e.GET("/health-check", func(c echo.Context) error {
+		return c.NoContent(http.StatusOK)
+	})
 
 	// Start the server
 	fmt.Println("\n--------------------------------------")
