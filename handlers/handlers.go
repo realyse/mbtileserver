@@ -20,7 +20,10 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/consbio/mbtileserver/mbtiles"
+	"github.com/dgrijalva/jwt-go"
 )
 
 const maxSignatureAge = time.Duration(15) * time.Minute
@@ -123,6 +126,54 @@ func hmacAuth(hf handlerFunc, secretKey string, serviceId string) handlerFunc {
 	}
 }
 
+// jwtAuth wraps handler functions to provide request authentication. If
+// -s/--secret-key is provided at startup, this function will enforce proper
+// request authentication. Otherwise, it will simply pass requests through to the
+// handler.
+func jwtAuth(hf handlerFunc, secretKey string, serviceId string) handlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) (int, error) {
+		// If secret key isn't set, allow all requests
+		if secretKey == "" {
+			return hf(w, r)
+		}
+
+		// Check if the request is using bearer auth or basic auth (Platform or API user)
+		secret := []byte(secretKey)
+
+		reqToken := r.Header.Get("Authorization")
+		if len(reqToken) == 0 {
+			return 401, errors.New("Unauthorized Request")
+		}
+		splitToken := strings.Split(reqToken, " ")
+		if !(len(splitToken) > 1) {
+			return 401, errors.New("Unauthorized Request")
+		}
+		reqToken = splitToken[1]
+
+		token, err := jwt.Parse(reqToken, func(token *jwt.Token) (interface{}, error) {
+
+			// Don't forget to validate the alg is what you expect:
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				log.Println("unexpected signing method")
+				return 401, errors.New("Unauthorized Request")
+			}
+			return secret, nil
+		})
+		if err != nil {
+			return 401, errors.New("Unauthorized Request")
+		}
+
+		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+			if _, ok := claims["id"]; !ok {
+				return 401, errors.New("Unauthorized Request")
+			}
+
+			return hf(w, r)
+		}
+		return 401, errors.New("Unauthorized Request")
+	}
+}
+
 // ServiceInfo consists of two strings that contain the image type and a URL.
 type ServiceInfo struct {
 	ImageType string `json:"imageType"`
@@ -137,6 +188,7 @@ type ServiceSet struct {
 	Domain    string
 	Path      string
 	secretKey string
+	authType  string
 }
 
 // New returns a new ServiceSet. Use AddDBOnPath to add a mbtiles file.
@@ -168,7 +220,7 @@ func (s *ServiceSet) AddDBOnPath(filename string, urlPath string) error {
 // NewFromBaseDir returns a ServiceSet that combines all .mbtiles files under
 // the directory at baseDir. The DBs will all be served under their relative paths
 // to baseDir.
-func NewFromBaseDir(baseDir string, secretKey string) (*ServiceSet, error) {
+func NewFromBaseDir(baseDir string, secretKey string, authType string) (*ServiceSet, error) {
 	var filenames []string
 	err := filepath.Walk(baseDir, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -185,6 +237,7 @@ func NewFromBaseDir(baseDir string, secretKey string) (*ServiceSet, error) {
 
 	s := New()
 	s.secretKey = secretKey
+	s.authType = authType
 
 	for _, filename := range filenames {
 		subpath, err := filepath.Rel(baseDir, filename)
@@ -472,16 +525,31 @@ func (s *ServiceSet) tiles(db *mbtiles.DB) handlerFunc {
 // an endpoint with a HTML slippy map for each service are served by the Handler.
 func (s *ServiceSet) Handler(ef func(error), publish bool) http.Handler {
 	m := http.NewServeMux()
-	if publish {
-		m.Handle("/services", wrapGetWithErrors(ef, hmacAuth(s.listServices, s.secretKey, "")))
-	}
-	for id, db := range s.tilesets {
-		p := "/services/" + id
-		m.Handle(p, wrapGetWithErrors(ef, hmacAuth(s.tileJSON(id, db, publish), s.secretKey, id)))
-		m.Handle(p+"/tiles/", wrapGetWithErrors(ef, hmacAuth(s.tiles(db), s.secretKey, id)))
+	if s.authType == "HMAC" {
 		if publish {
-			m.Handle(p+"/map", wrapGetWithErrors(ef, hmacAuth(s.serviceHTML(id, db), s.secretKey, id)))
+			m.Handle("/services", wrapGetWithErrors(ef, hmacAuth(s.listServices, s.secretKey, "")))
+		}
+		for id, db := range s.tilesets {
+			p := "/services/" + id
+			m.Handle(p, wrapGetWithErrors(ef, hmacAuth(s.tileJSON(id, db, publish), s.secretKey, id)))
+			m.Handle(p+"/tiles/", wrapGetWithErrors(ef, hmacAuth(s.tiles(db), s.secretKey, id)))
+			if publish {
+				m.Handle(p+"/map", wrapGetWithErrors(ef, hmacAuth(s.serviceHTML(id, db), s.secretKey, id)))
+			}
+		}
+	} else if s.authType == "JWT" {
+		if publish {
+			m.Handle("/services", wrapGetWithErrors(ef, jwtAuth(s.listServices, s.secretKey, "")))
+		}
+		for id, db := range s.tilesets {
+			p := "/services/" + id
+			m.Handle(p, wrapGetWithErrors(ef, jwtAuth(s.tileJSON(id, db, publish), s.secretKey, id)))
+			m.Handle(p+"/tiles/", wrapGetWithErrors(ef, jwtAuth(s.tiles(db), s.secretKey, id)))
+			if publish {
+				m.Handle(p+"/map", wrapGetWithErrors(ef, jwtAuth(s.serviceHTML(id, db), s.secretKey, id)))
+			}
 		}
 	}
+
 	return m
 }

@@ -2,6 +2,7 @@ module github.com/consbio/mbtileserver
 
 require (
 	github.com/certifi/gocertifi v0.0.0-20190105021004-abcd57078448 // indirect
+	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/evalphobia/logrus_sentry v0.8.2
 	github.com/getsentry/raven-go v0.2.0 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect

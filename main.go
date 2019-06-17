@@ -54,6 +54,7 @@ var (
 	pathPrefix  string
 	domain      string
 	secretKey   string
+	authType    string
 	sentryDSN   string
 	verbose     bool
 	autotls     bool
@@ -69,6 +70,7 @@ func init() {
 	flags.StringVar(&pathPrefix, "path", "", "URL root path of this server (if behind a proxy)")
 	flags.StringVar(&domain, "domain", "", "Domain name of this server")
 	flags.StringVarP(&secretKey, "secret-key", "s", "", "Shared secret key used for HMAC authentication")
+	flags.StringVarP(&authType, "auth-type", "a", "HMAC", "Defines the authentication type to use")
 	flags.StringVar(&sentryDSN, "dsn", "", "Sentry DSN")
 	flags.BoolVarP(&verbose, "verbose", "v", false, "Verbose logging")
 	flags.BoolVarP(&autotls, "tls", "t", false, "Auto TLS via Let's Encrypt")
@@ -132,6 +134,10 @@ func init() {
 
 	if secretKey == "" {
 		secretKey = os.Getenv("HMAC_SECRET_KEY")
+	}
+
+	if authType == "" {
+		authType = os.Getenv("AUTH_TYPE")
 	}
 }
 
