@@ -132,11 +132,11 @@ func init() {
 		redirect = p
 	}
 
-	if secretKey == "" {
+	if env := os.Getenv("HMAC_SECRET_KEY"); env != "" {
 		secretKey = os.Getenv("HMAC_SECRET_KEY")
 	}
 
-	if authType == "" {
+	if env := os.Getenv("AUTH_TYPE"); env != "" {
 		authType = os.Getenv("AUTH_TYPE")
 	}
 }
