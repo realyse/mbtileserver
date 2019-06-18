@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/evalphobia/logrus_sentry"
 	"github.com/labstack/echo/v4/middleware"
@@ -245,6 +246,8 @@ func serve() {
 	e.GET("/health-check", func(c echo.Context) error {
 		return c.NoContent(http.StatusOK)
 	})
+
+	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 
 	// Start the server
 	fmt.Println("\n--------------------------------------")
